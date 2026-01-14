@@ -53,6 +53,11 @@ class KalmanTrack:
         self.hits = 1
         self.last_bbox = initial_bbox
         self.frames_consecutive_hit = 1
+        
+        # Scenario 10: Ghost Face Detection
+        # Track mouth openness over time to detect static posters
+        self.mouth_history = [] 
+        self.max_mouth_history = 60 # 2 seconds at 30fps
 
     def predict(self):
         """Advances the state vector using the transition matrix."""
@@ -61,7 +66,7 @@ class KalmanTrack:
         self.time_since_update += 1
         return self.state()
 
-    def update(self, bbox: Tuple[int, int, int, int], embedding: Optional[np.ndarray] = None):
+    def update(self, bbox: Tuple[int, int, int, int], embedding: Optional[np.ndarray] = None, mouth_val: float = 0.0):
         """Updates the state vector with observed measurement."""
         cx = bbox[0] + bbox[2] / 2
         cy = bbox[1] + bbox[3] / 2
@@ -74,6 +79,11 @@ class KalmanTrack:
         self.time_since_update = 0
         self.frames_consecutive_hit += 1
         
+        # Update Mouth History
+        self.mouth_history.append(mouth_val)
+        if len(self.mouth_history) > self.max_mouth_history:
+            self.mouth_history.pop(0)
+        
         # Update Embedding (EMA-like)
         if embedding is not None:
             if self.embedding is None:
@@ -83,6 +93,29 @@ class KalmanTrack:
                 alpha = 0.1
                 self.embedding = (1 - alpha) * self.embedding + alpha * embedding
                 self.embedding = self.embedding / np.linalg.norm(self.embedding) # Renormalize
+
+    def is_static_ghost(self) -> bool:
+        """
+        Returns True if the track appears to be a static image (poster/statue).
+        Criteria: Long duration, low/zero mouth movement.
+        """
+        if self.age < 30: # Need 1s of data
+            return False
+            
+        if not self.mouth_history:
+            return False
+            
+        # Check variance or max
+        # A real person usually has noise > 0.01 or occasional 0.1
+        # A poster in a video might have compression noise
+        avg_openness = sum(self.mouth_history) / len(self.mouth_history)
+        max_openness = max(self.mouth_history)
+        
+        # Criteria: Constantly closed
+        if max_openness < 0.05 and avg_openness < 0.02:
+            return True
+            
+        return False
 
     def state(self):
         """Returns the current predicted (cx, cy)."""
@@ -150,10 +183,13 @@ class MultiObjectTracker:
         for dist, t_idx, d_idx in candidates:
             if t_idx not in used_tracks and d_idx not in used_dets:
                 # Match found!
-                self.tracks[t_idx].update(detections[d_idx]['bbox'], detections[d_idx].get('embedding'))
+                det = detections[d_idx]
+                mouth_val = det.get('mouth_openness', 0.0)
                 
-                detections[d_idx]['track_id'] = self.tracks[t_idx].track_id
-                detections[d_idx]['track_count'] = self.tracks[t_idx].age
+                self.tracks[t_idx].update(det['bbox'], det.get('embedding'), mouth_val=mouth_val)
+                
+                det['track_id'] = self.tracks[t_idx].track_id
+                det['track_count'] = self.tracks[t_idx].age
                 
                 used_tracks.add(t_idx)
                 used_dets.add(d_idx)

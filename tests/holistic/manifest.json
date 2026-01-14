@@ -1,0 +1,18 @@
+[
+  {
+    "id": "scenario_01_interview_basics",
+    "source_url": "https://www.youtube.com/watch?v=YyepU5ztLf4",
+    "start_time": "00:00:30",
+    "end_time": "00:00:45",
+    "tags": ["interview", "static_cam"],
+    "description": "Basic interview setup. Check for smooth speaker switching."
+  },
+  {
+    "id": "scenario_15_fast_motion_example",
+    "source_url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+    "start_time": "00:00:10",
+    "end_time": "00:00:20",
+    "tags": ["sports", "high_velocity"],
+    "description": "Big Buck Bunny running. Check for tracker lag."
+  }
+]

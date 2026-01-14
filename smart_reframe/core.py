@@ -202,15 +202,23 @@ class ReframePipeline:
         if not faces:
             return None
             
+        frame_h = self.reader.height
+
+        # Pre-calculate Mouth Openness for Tracker History
+        for face in faces:
+            landmarks = face.get('landmarks')
+            mouth_openness = self.mouth_detector.get_mouth_openness(landmarks, frame_h)
+            face['mouth_openness'] = mouth_openness
+
         # Update persistence (Kalman Tracking)
         # Pass frame for Re-ID embedding
+        # Now tracker consumes 'mouth_openness' from face dict
         self.tracker.update(faces, self.reader.width, frame_image=frame)
         
         audio_energy = self.audio.get_audio_energy(timestamp - 0.1, timestamp + 0.1)
         
         best_score = -9999
         best_idx = None
-        frame_h = self.reader.height
         
         max_persistence = 1
         if self.tracker.tracks:
@@ -220,8 +228,7 @@ class ReframePipeline:
          
         scores = []
         for i, face in enumerate(faces):
-            landmarks = face.get('landmarks')
-            mouth_openness = self.mouth_detector.get_mouth_openness(landmarks, frame_h)
+            mouth_openness = face.get('mouth_openness', 0.0)
             
             score = (audio_energy * WEIGHT_AUDIO_ACTIVITY) * \
                     (mouth_openness * WEIGHT_MOUTH_ENERGY) * \
@@ -231,13 +238,21 @@ class ReframePipeline:
             score += p_score
             
             # Phase: Frontal Face Priority
-            # Bonus for facing camera (0.0 to 1.0) -> Max +2.0 points
             facing_bonus = face.get('facing_score', 0.5) * 2.0
             score += facing_bonus
             
             # Talking Bonus (High Mouth + Audio)
             if mouth_openness > 0.15 and audio_energy > 0.1:
                 score += 5.0 
+
+            # Scenario 10: Ghost Face Penalty (Static Check)
+            # Find associated track
+            tid = face.get('track_id')
+            if tid is not None:
+                track = next((t for t in self.tracker.tracks if t.track_id == tid), None)
+                if track and track.is_static_ghost():
+                    score -= 50.0 # Heavy penalty effectively bans it from being "Speaker"
+                    face['is_ghost'] = True
             
             face['speaker_score'] = score
             scores.append(score)
