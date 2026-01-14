@@ -1,0 +1,9 @@
+opencv-python
+numpy
+tqdm
+mediapipe
+librosa
+filterpy
+scipy
+yt-dlp
+lap
